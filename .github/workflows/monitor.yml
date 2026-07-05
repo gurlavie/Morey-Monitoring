@@ -16,17 +16,17 @@ concurrency:
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check availability every ~60s
+      - name: Check availability every ~60s for ~55 min
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for i in 1 2 3 4 5; do
+          for i in $(seq 1 55); do
             python3 monitor.py
-           if [ "$i" -lt 5 ]; then sleep 60; fi
+            if [ "$i" -lt 55 ]; then sleep 60; fi
           done
 
       - name: Commit state if changed
