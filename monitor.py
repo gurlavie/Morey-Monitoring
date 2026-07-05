@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Cabane de Moiry availability monitor — Sept 18/19, 2026.
-
-Checks the public availability API (no login required) and opens a GitHub
-issue when Sept 19 opens up (need 3 places) or Sept 18 counts change.
-Stdlib only — no dependencies.
-"""
+"""Cabane de Moiry availability monitor - Sept 18/19, 2026."""
 import json
 import os
 import re
@@ -20,8 +15,6 @@ STATE_FILE = os.path.join(HERE, "state.json")
 LOG_FILE = os.path.join(HERE, "log.csv")
 BOOKING_URL = "https://booking.cabane-moiry.ch/calendrier.php"
 
-# "There are 65 places in the dormitory and 19 in mini-dormitory" (en)
-# "Il reste 65 places en dortoir et 19 en mini-dortoir" (fr, just in case)
 PATTERNS = [
     re.compile(r"There (?:are|is) (\d+) places? in the dormitory and (\d+) in mini-dormitory", re.I),
     re.compile(r"(\d+)\s+places?[^<\d]*(?:dortoir|dormitory)[^<\d]*?(\d+)", re.I),
@@ -35,13 +28,21 @@ def check(date_str):
         "Content-Type": "application/x-www-form-urlencoded",
         "User-Agent": "Mozilla/5.0 (availability watch; personal use)",
     })
-    with urllib.request.urlopen(req, timeout=30) as r:
-        html = r.read().decode("utf-8", "replace")
+    html = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                html = r.read().decode("utf-8", "replace")
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            import time
+            time.sleep(5)
     for pat in PATTERNS:
         m = pat.search(html)
         if m:
             return int(m.group(1)), int(m.group(2))
-    # Full days may phrase things differently; waitlist marker => 0/0
     if "listeAttente" in html or "complète" in html.lower() or "waiting list" in html.lower():
         return 0, 0
     return None
@@ -75,10 +76,35 @@ def main():
             state = json.load(f)
 
     results = {}
+    fetched = {}
     for key, date_str in DATES.items():
-        res = check(date_str)
+        try:
+            fetched[key] = check(date_str)
+        except Exception as e:
+            streak = state.get("fail_streak", 0) + 1
+            state["fail_streak"] = streak
+            print(f"{now} {key}: FETCH FAILED ({e}) - streak {streak}")
+            if streak == 10:
+                create_issue(
+                    "🔴 Moiry monitor is BLIND: cannot reach booking site from GitHub",
+                    f"10 consecutive checks failed (last error: `{e}`) as of {now}. "
+                    f"The hut server may be blocking GitHub's IPs.\n\n"
+                    f"The GitHub monitor is NOT seeing availability right now - "
+                    f"rely on the local Claude monitor, or check manually: {BOOKING_URL}",
+                )
+            with open(STATE_FILE, "w") as f:
+                json.dump(state, f, indent=1)
+            return
+    # reachable - announce recovery if we had been blind
+    if state.pop("fail_streak", 0) >= 10:
+        create_issue(
+            "🟢 Moiry monitor recovered - booking site reachable again",
+            f"Checks are succeeding again as of {now}.",
+        )
+
+    for key, date_str in DATES.items():
+        res = fetched[key]
         if res is None:
-            # Parse failure — alert once, not every run
             if not state.get("parse_error"):
                 create_issue(
                     "⚠️ Moiry monitor: cannot parse availability response",
@@ -106,10 +132,10 @@ def main():
     if sum(s19) > 0 and s19 != prev19:
         total = sum(s19)
         create_issue(
-            f"🚨 SEPT 19 OPEN: {s19[0]} dortoir + {s19[1]} mini-dortoir — BOOK NOW (need 3)",
+            f"🚨 SEPT 19 OPEN: {s19[0]} dortoir + {s19[1]} mini-dortoir - BOOK NOW (need 3)",
             f"Cabane de Moiry has **{total} place(s)** on Saturday 19 September 2026 "
             f"({s19[0]} dortoir, {s19[1]} mini-dortoir) as of {now}.\n\n"
-            f"👉 **[Book immediately]({BOOKING_URL})** — plan: 3 people, 1 night, "
+            f"👉 **[Book immediately]({BOOKING_URL})** - plan: 3 people, 1 night, "
             f"any dortoir/mini mix, half-board.\n\n"
             f"Openings on a full hut usually vanish within minutes.",
         )
