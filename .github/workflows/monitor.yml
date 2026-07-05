@@ -26,7 +26,7 @@ jobs:
         run: |
           for i in 1 2 3 4 5; do
             python3 monitor.py
-            [ "$i" -lt 5 ] && sleep 60
+           if [ "$i" -lt 5 ]; then sleep 60; fi
           done
 
       - name: Commit state if changed
