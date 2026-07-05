@@ -20,13 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check availability every ~60s for ~55 min
+      - name: Check availability every 15 min for ~45 min
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for i in $(seq 1 55); do
+          for i in $(seq 1 4); do
             python3 monitor.py
-            if [ "$i" -lt 55 ]; then sleep 60; fi
+            if [ "$i" -lt 4 ]; then sleep 900; fi
           done
 
       - name: Commit state if changed
